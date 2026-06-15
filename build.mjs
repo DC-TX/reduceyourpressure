@@ -1,6 +1,9 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 
 mkdirSync('dist/assets', { recursive: true });
+if (existsSync('public/gangguan.mp3')) {
+  copyFileSync('public/gangguan.mp3', 'dist/gangguan.mp3');
+}
 
 const html = '<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reduce Your Pressure</title><link rel="stylesheet" href="/assets/styles.css"></head><body><div id="app"></div><' + 'script src="/assets/app.js"></' + 'script></body></html>';
 
@@ -9,8 +12,27 @@ const app = document.querySelector('#app');
 let value = '';
 let page = 'home';
 let body = '';
+let audio = null;
+let lastSoundAt = 0;
+const SOUND_SPEED = 24;
 let state = { x: 120, y: 120, vx: 0, vy: 0, down: false, lx: 0, ly: 0, pressure: 0, axis: 'x' };
 function cut(text) { return Array.from(text).slice(0, 8).join(''); }
+function readyAudio() {
+  if (!audio) {
+    audio = new Audio('/gangguan.mp3');
+    audio.preload = 'auto';
+  }
+  audio.load();
+}
+function hitSound(speed) {
+  const now = performance.now();
+  if (speed < SOUND_SPEED || now - lastSoundAt < 280) return;
+  lastSoundAt = now;
+  readyAudio();
+  audio.currentTime = 0;
+  audio.volume = Math.min(1, 0.35 + (speed - SOUND_SPEED) / 55);
+  audio.play().catch(() => {});
+}
 function home() {
   page = 'home';
   app.innerHTML = '<main class="page home-page dot-grid"><section class="home-card"><h1 class="blur-title" aria-label="输入你讨厌的东西！！！"></h1><p class="hint">最多 8 个字符，支持中文。</p><form class="input-row"><input placeholder="例如：ddl" autofocus><button type="submit">完成</button></form></section></main>';
@@ -24,17 +46,17 @@ function home() {
   const input = app.querySelector('input');
   input.value = value;
   input.addEventListener('input', () => { value = cut(input.value); input.value = value; });
-  app.querySelector('form').addEventListener('submit', (event) => { event.preventDefault(); play(value); });
+  app.querySelector('form').addEventListener('submit', (event) => { event.preventDefault(); readyAudio(); play(value); });
 }
 function play(text) {
   page = 'play';
   body = text || '空白';
   state = { x: Math.max(60, innerWidth / 2 - 130), y: 120, vx: 0, vy: 0, down: false, lx: 0, ly: 0, pressure: 0, axis: 'x' };
-  app.innerHTML = '<main class="page play-page"><button class="back-button">重新输入</button><div class="play-tip">拖动文字，把它砸向边缘。</div><div class="ballpit-css"></div><div class="pressure-text"><span class="falling-shadow"></span><span class="falling-main"></span></div></main>';
+  app.innerHTML = '<main class="page play-page"><button class="back-button">重新输入</button><div class="play-tip">拖动文字，把它砸向边缘。高速撞墙会播放 gangguan.mp3。</div><div class="ballpit-css"></div><div class="pressure-text"><span class="falling-shadow"></span><span class="falling-main"></span></div></main>';
   app.querySelector('.back-button').addEventListener('click', home);
   app.querySelectorAll('.falling-shadow,.falling-main').forEach((node) => { node.textContent = body; });
   const box = app.querySelector('.pressure-text');
-  box.addEventListener('pointerdown', (event) => { state.down = true; state.lx = event.clientX; state.ly = event.clientY; box.setPointerCapture(event.pointerId); });
+  box.addEventListener('pointerdown', (event) => { readyAudio(); state.down = true; state.lx = event.clientX; state.ly = event.clientY; box.setPointerCapture(event.pointerId); });
   box.addEventListener('pointermove', (event) => {
     if (!state.down) return;
     const dx = event.clientX - state.lx;
@@ -72,6 +94,7 @@ function tick() {
   if (state.y < 0) { state.y = 0; state.vy = Math.abs(state.vy) * 0.72; state.axis = 'y'; hit = true; }
   if (state.y > innerHeight - h) { state.y = innerHeight - h; state.vy = -Math.abs(state.vy) * 0.72; state.axis = 'y'; hit = true; }
   const speed = Math.hypot(state.vx, state.vy);
+  if (hit) hitSound(speed);
   state.pressure = hit ? Math.min(1.2, speed / 35) : state.pressure * 0.9;
   const sx = state.axis === 'x' ? 1 - state.pressure * 0.28 : 1 + state.pressure * 0.18;
   const sy = state.axis === 'y' ? 1 - state.pressure * 0.24 : 1 + state.pressure * 0.16;
